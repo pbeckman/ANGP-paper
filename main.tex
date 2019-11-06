@@ -21,12 +21,14 @@
 \newcommand{\norm}[1]{\left\lVert#1\right\rVert}
 \newcommand{\abs}[1]{\left|#1\right|}
 \newcommand{\mat}[1]{\begin{bmatrix}#1\end{bmatrix}}
-\renewcommand{\vec}[1]{\mathbf{#1}}
 \renewcommand{\arraystretch}{1.3}
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\Z}{\mathbb{Z}}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\N}{\mathcal{N}}
+\newcommand{\I}{\mathcal{I}}
+\renewcommand{\S}{\mathbb{S}}
+\DeclareMathOperator{\tr}{tr}
 \DeclareMathOperator{\Cov}{Cov}
 \DeclareMathOperator{\diag}{diag}
 \DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
@@ -38,6 +40,22 @@
 \numberwithin{equation}{section}
 \setlength\parindent{0.25in}
 \setstretch{1.1}
+
+% covariance matrix
+\newcommand{\cm}{\bm{\Sigma}}
+% approximate covariance matrix
+\newcommand{\acm}{\widetilde{\cm}}
+\newcommand{\x}{\bm{x}}
+\newcommand{\xp}{\bm{x'}}
+\newcommand{\y}{\bm{y}}
+\newcommand{\a}{\bm{a}}
+\renewcommand{\c}{\bm{c}}
+\renewcommand{\u}{\bm{u}}
+\newcommand{\v}{\bm{v}}
+\newcommand{\A}{\bm{A}}
+\newcommand{\U}{\bm{U}}
+\newcommand{\V}{\bm{V}}
+\newcommand{\W}{\bm{W}}
 
 \title{\textbf{Scalable Global Parameter Estimation for Nonstationary Gaussian Processes}}
 \date{}
@@ -59,112 +77,140 @@ Put the abstract here.
 
 \section{Introduction}
 
+Gaussian process assumptions and applications overview.
+
 \begin{equation}
-  -\ell(\bm{\theta}) := \frac{1}{2}\log\abs{\bm{\Sigma}(\bm{\theta})} + \frac{1}{2}(\mathbf{y}-\bm{\mu})^\top\bm{\Sigma}(\bm{\theta})^{-1}(\mathbf{y}-\bm{\mu}) + \frac{n}{2}\log(2\pi)
-  \label{nll}
+  -\ell(\bm{\theta}) := \frac{1}{2}\log\abs{\cm(\bm{\theta})} + \frac{1}{2}(\y-\bm{\mu})^\top\cm(\bm{\theta})^{-1}(\y-\bm{\mu}) + \frac{n}{2}\log(2\pi)
+  \label{eqn:nll}
 \end{equation}
 
-Minimizing \ref{nll} numerically can be computationally expensive, as conventional determinant and linear solve operations scale cubically in time and quadratically in storage. As $n$ grows, the evaluation of \ref{nll} thus becomes prohibitively expensive. In response to these scaling challenges, a number of methods have been introduced to more efficiently compute or approximate \ref{nll}.
+Minimizing \ref{eqn:nll} numerically can be computationally expensive, as conventional determinant and linear solve operations scale cubically in time and quadratically in storage. As $n$ grows, the evaluation of \ref{eqn:nll} thus becomes prohibitively expensive. In response to these scaling challenges, a number of methods have been introduced to more efficiently compute or approximate \ref{eqn:nll}.
 
-Fast Gaussian process MLE methods (Vecchia, Guinness, Chen-Stein, Anitescu-Stein, Lindgren, Minden, Geoga, Ambikasaran)
+Fast Gaussian process MLE methods (Vecchia, Guinness, Chen-Stein, Anitescu-Stein, Lindgren, Minden, Geoga, Ambikasaran). We choose to use HODLR, see Section \ref{sec:hodlr}.
 
-We choose to use HODLR
+With the exception of \cite{guinness2019gaussian}, all of these scalable methods are applied exclusively to stationary models. However, stationarity is often an unrealistic assumption for large datasets spanning spatial regions in which small scale dynamics cause variation in the local behavior of the data. To address this issue, past work has used locally stationary models in which the parameters of the random field are assumed to be constant in some neighborhood. Both disjoint neighborhoods \cite{lenzi2019improving} and overlapping or moving window neighborhoods \cite{kuusela2018locally, anderes2011local} have been used for maximum likelihood parameter estimation and prediction. Under such approaches, one must perform parameter estimation and prediction using only the observations lying in a single neighborhood instead of using the entire set of observations, as the stationary GP model is only assumed locally. Thus one must choose the neighborhood size a priori to balance the spatial scale of the nonstationary with the density of observations such that the neighborhoods are small enough to capture local variation but contain sufficient observations to make accurate predictions. The scalability of matrix operations using the HODLR-approximated covariance $\bm{\widetilde{\Sigma}}$ allows us to use the full dataset for parameter estimation and prediction, sidestepping the question of neighborhood size.
 
-With the exception of \cite{guinness2019gaussian}, all of these scalable methods are applied to stationary models. However, stationarity is often an unrealistic assumption for large datasets spanning spatial regions in which small scale dynamics cause variation in the local behavior of the data. To address this issue, past work has used locally stationary models in which the parameters of the random field are assumed to be constant in some neighborhood. Both disjoint neighborhoods \cite{lenzi2019improving} and overlapping or moving window neighborhoods \cite{kuusela2018locally, anderes2011local} have been used for maximum likelihood parameter estimation and prediction. Under such approaches, one must perform parameter estimation and prediction using only the observations lying in a single neighborhood instead of using the entire set of observations, as the stationary GP model is only assumed locally. Thus one must choose the neighborhood size a priori to balance the spatial scale of the nonstationary with the density of observations such that the neighborhoods are small enough to capture local variation but contain sufficient observations to make accurate predictions. The scalability of matrix operations using the HODLR-approximated covariance $\bm{\tilde{\Sigma}}$ allows us to use the full dataset for parameter estimation and prediction, sidestepping the question of neighborhood size.
-
-Convolution framework
-
-Apart from locally stationary models, significant effort has been devoted to the construction of positive definite nonstationary covariance functions with spatially varying parameters. Gibbs \cite{gibbs1997bayesian} derives a squared exponential covariance function with a spatially varying range. Paciorek \cite{paciorek2003nonstationary} generalizes this result to allow spatially varying anisotropy for arbitrary stationary covariance functions. Stein \cite{stein2005nonstationary} introduces the following Mat\'ern covariance function with spatially varying anisotropy $\Lambda : \Omega \to \mathbb{S}^d_{++}$, variance $\sigma^2 : \Omega \to \R_+$, and smoothness $\nu : \Omega \to \R_+$
+Apart from locally stationary models, significant effort has been devoted to the construction of positive definite nonstationary covariance functions with spatially varying parameters \cite{gibbs1997bayesian, paciorek2003nonstationary}. Stein \cite{stein2005nonstationary} introduces the following Mat\'ern covariance function with spatially varying anisotropy $\Lambda : \Omega \to \mathbb{S}^d_{++}$, variance $\sigma^2 : \Omega \to \R_+$, and smoothness $\nu : \Omega \to \R_+$
 \begin{equation}
-  k(\mathbf{x}_i, \mathbf{x}_j; \bm{\theta}) := \sigma^2(\mathbf{x}_i) \sigma^2(\mathbf{x}_j) \abs{\frac{\Lambda(\mathbf{x}_i) + \Lambda(\mathbf{x}_j)}{2}}^{-\frac{1}{2}}
-  \mathcal{M}_{\frac{\nu(\mathbf{x}_i) + \nu(\mathbf{x}_j)}{2}} \bigg( \sqrt{Q_{ij}} \bigg)
-  \label{kernel}
+  k(\x, \xp) := \sigma^2(\x) \sigma^2(\xp) \abs{\frac{\Lambda(\x) + \Lambda(\xp)}{2}}^{-\frac{1}{2}}
+  \mathcal{M}_{\frac{\nu(\x) + \nu(\xp)}{2}} \bigg( \sqrt{Q_{ij}} \bigg)
+  \label{eqn:covfunc}
 \end{equation}
 using the quadratic form
 \begin{equation*}
-  Q_{ij} := (\mathbf{x}_i - \mathbf{x}_j)^\top \Big(\frac{\Lambda(\mathbf{x}_i) + \Lambda(\mathbf{x}_j)}{2}\Big)^{-1} (\mathbf{x}_i - \mathbf{x}_j),
+  Q_{ij} := (\x - \xp)^\top \Big(\frac{\Lambda(\x) + \Lambda(\xp)}{2}\Big)^{-1} (\x - \xp),
 \end{equation*}
 where $\mathcal{M}_\nu$ is the stationary isotropic Mat\'ern covariance function
 $$ \mathcal{M}_\nu(r) := \frac{2^{1-\nu}}{\Gamma(\nu)} (\sqrt{2\nu} r)^\nu K_\nu(\sqrt{2\nu} r) $$
 and $K_\nu$ is the modified Bessel function of the second kind of order $\nu$.
 
-In order to compute the nonstationary covariance function \ref{kernel}, one must specify the functions $\Lambda, \sigma^2,$ and $\nu$. A number of nonparametric and semiparametric methods have been proposed in the literature to construct global approximations to these nonstationary parameter functions. Risser et al. impose parametric forms with respect to covariate data \cite{risser2015regression}. Paciorek et al. \cite{paciorek2004nonstationary} propose a hierarchical Bayesian model for a nonstationary anisotropy matrix in which the eigenvalues and Givens angles of the eigenvector matrix are given stationary GP priors.
-Noting that observations from a GP can be expressed as a linear combination of $n$ radial basis functions (RBFs) with centers $c_i$ fixed at the observations and shapes $\varphi(\norm{\mathbf{x} - \mathbf{c}_i}) = k(\mathbf{x}, \mathbf{c}_i)$ defined by the covariance function, the authors employ a low-rank GP approximation with a set of $k \leq n$ \textit{knots} on a coarse grid over a two-dimensional spatial domain which serve as a reduced set of RBF centers \cite{kammann2003geoadditive, paciorek2006spatial}.
+In order to compute the nonstationary covariance function \ref{eqn:covfunc}, one must specify the spatially varying parameter functions $\Lambda, \sigma^2,$ and $\nu$. Asymptotic results show that the parameters $\sigma^2$ and $\Lambda$ cannot be consistently estimated simultaneously using an increasing number of observations in a bounded subset of $\R^p$ for $p<4$, even when they are not spatially varying and $\Lambda = \lambda I$ is restricted to be a scalar multiple of the identity \cite{zhang2004inconsistent}.
+Thus for identifiability purposes the spatially varying parameter functions $\Lambda, \sigma^2,$ and $\nu$ must be severely restricted. For the purpose of concreteness and demonstration within this manuscript, we will assume $\nu$ is fixed and known, estimating either $\Lambda$ or $\sigma^2$ and fixing the other.
 
-Additional work has been done with explicit RBF representations of nonstationary parameters. Gibbs \cite{gibbs1997bayesian} uses a linear combination of RBFs on a one-dimensional grid to estimate a nonstationary range parameter, using Gaussian priors on the basis function weights. Guinness \cite{guinness2019gaussian} uses a set of orthogonalized RBFs to approximate a nonstationary scale parameter. Finally, Higdon \cite{higdon1998process} and Paciorek \cite{paciorek2003nonstationary} employ a normalized RBF approximation in which the nonstationary parameters are computed as RESTRUCTURE FOR OTHER REFERENCES
+Many authors have adopted a Bayesian approach to estimating a spatially varying parameter function $\theta \in \{\Lambda, \sigma^2\}$ by specifying a prior over some functional space and sampling the posterior distribution using Markov Chain Monte Carlo \cite{risser2015regression, gibbs1997bayesian, paciorek2004nonstationary, paciorek2006spatial, higdon1998process}. Alternatively, within the maximum likelihood framework the covariance matrix $\cm[\theta]$ becomes a functional which depends on the parameter function $\theta$. Minimizing the negative log likelihood \ref{eqn:nll} thus becomes a variational problem, which we solve approximately by estimating $\theta$ as a linear combination of basis functions $\{ \psi_i\}_{i=1}^m$,
 \begin{equation}
-  \bm{\theta}(\mathbf{x}) := \frac{\sum_{i=1}^m \varphi(\norm{\mathbf{x} - \mathbf{c}_i}) \ \bm{\theta}_i}{\sum_{i=1}^m \varphi(\norm{\mathbf{x} - \mathbf{c}_i})},
-  \label{NRBF}
+  \min_{\theta : \Omega \to D} -\ell[\theta] \approx \min_{\a \in \R^m} -\ell\Bigg[\sum_{i=1}^m a_i \psi_i\Bigg],
+  \label{eqn:var}
 \end{equation}
-where $\varphi$ is a radial function with radius parameter $\lambda$ and each $\bm{\theta}_i$ is a scalar- or matrix-valued variable representing a local parameter value at the RBF center $\mathbf{c}_i$. One can view \ref{NRBF} as a linear smoother of local parameter values, yielding a global parametric approximation to the nonstationary parameter. Minimizing \ref{nll} thus results in an $O(m)$-dimensional nonlinear optimization problem, which may include semidefinite or box constraints depending on the parameterizations of $\Lambda, \sigma^2,$ and $\nu$.
+where $D$ is the domain on which $\theta$ is a valid parameter. Our choices of parameterization and basis set determine the structure of the resulting optimization problem. For example, in the case of estimating a positive parameter like $\sigma^2$ using a set of positive basis functions, we obtain the bound constrained nonlinear program
+\begin{equation}
+  \begin{aligned}
+    \min_{\a \in \R^m} & -\ell\Bigg[ \sum_{i=1}^m a_i \psi_i \Bigg] \\
+    a_i & \geq 0 \quad \forall \ i=1,...,m.
+    \label{eqn:opt}
+  \end{aligned}
+\end{equation}
+We use radial basis functions (RBFs), for example the Gaussian functions $\psi_i(\x) = e^{-\frac{\norm{\x - \c_i}^2}{r}}$, centered at $\c_i$ so that the estimated function $\sigma^2$ is everywhere positive, and we normalize these functions so that $\sum_{i=1}^m \psi_i(\x) = 1$. The principle advantage of normalization is that for small values of the radius parameter $r$, linear combinations of the basis functions approach piecewise constant functions, which is a more meaningful estimator than the sum of delta functions approached in the same small $r$ limit without normalization. In addition, the RBF sets yield localized dependence, allowing additional approximations which reduce computational cost, see Section \ref{sec:computation}. However, we emphasize that the above framework is applicable to any basis set, for example polynomial or Fourier bases, if one chooses to estimate a transformed variable, such as $\log(\sigma^2)$ which is not required to be positive.
 
-With the exception of the work by Guinness, which uses Fisher scoring to perform maximum likelihood estimation, all of the above methods use MCMC to sample the posterior distribution. Our main contribution is to introduce and test a number of scalable numerical optimization routines which are applicable to nonstationary parameter function approximations. In this way we provide flexible MLE alternatives to MCMC for a broad class of nonstationary models.
+% \begin{figure}[t!]
+%   \centering
+%   \begin{subfigure}[t]{0.2\textwidth}
+%     \includegraphics[width=\textwidth]{figures/rbfs.pdf}
+%     \caption{}
+%   \end{subfigure}%
+%   \begin{subfigure}[t]{0.2\textwidth}
+%     \includegraphics[width=\textwidth]{figures/nrbfs.pdf}
+%     \caption{}
+%   \end{subfigure}
+%   \caption{Unnormalized (a) and normalized (b) Gaussian basis sets on [0,1] with centers at 0.2, 0.4, 0.6, and 0.8.}
+%   \label{fig:rbf}
+% \end{figure}
 
-\section{HODLR matrices and scalable likelihood computations} \label{HODLR}
+\section{HODLR matrices and scalable likelihood computations} \label{sec:hodlr}
 We now provide a brief overview of HODLR matrices and methods for computing the likelihood and its gradient and hessian in quasilinear time. A symmetric HODLR matrix is of the form
 \begin{equation}
-  \mat{A_1 & UV^\top \\ VU^\top & A_2}
-  \label{HODLR}
+  \mat{\A_1 & \U \V^\top \\ \V \U^\top & \A_2}
+  \label{eqn:hodlr}
 \end{equation}
-where $U, V \in \R^{n \times p}$ and $A_1$ and $A_2$ are either dense or of the form \ref{HODLR}.
-
-% \begin{align*}
-%   y &= L \bm{\omega} \\
-%   \bm{\Sigma} &= LL^\top \\
-%    \bm{\omega} &\sim \mathcal{N}(0, I)
-% \end{align*}
-% with the
-
-\section{Computational considerations}
-Although the HODLR approximation greatly improves the scalability of the evaluation of the likelihood and its derivatives, the nonlinear program \ref{} becomes high-dimensional and costly when a large number of anchors are used. We now discuss methods which improve the computational complexity of solving \ref{}.
-
-\subsection{Compactly-supported basis functions}
-scaling overview
-
-O(m) to O(a) kernel evaluation
-
-Although Gaussian RBFs truncated at some radius $\lambda$ would yield a similar sparse representation, we choose to employ compactly-supported basis functions because we can enforce an arbitrary level of smoothness at the origin and at $r=\lambda$. This allows us to maintain the $\floor{\nu}$-times mean-squared differentiability of the GP.
-
-It is worth emphasizing that the use of a compactly-supported basis function to approximate the nonstationary parameter functions does not result in a compactly-supported kernel.
+where $\U, \V \in \R^{n \times p}$ and $\A_1$ and $\A_2$ are either dense or of the form \ref{eqn:hodlr}.
 
 \begin{equation}
-  \bm{\Sigma}_{jk} = K \mat{I_s \\ 0} + \mat{I_s & 0}\tilde{K}^\top
+  \big[-\nabla \ell(\bm{\theta}) \big]_j = \frac{1}{2} \tr(\cm^{-1} \cm_j) - \frac{1}{2} \y^\top \acm^{-1} \acm_j \acm^{-1} \y
+  \label{eqn:grad}
 \end{equation}
-where $K, \tilde{K} \in \R^{n \times s}$ are defined by
-\begin{align*}
-  K_{ij} &= k(\mathbf{x}_i, \mathbf{x}_j) \\
-  \tilde{K}_{ij} &=
-\end{align*}
 
-\subsection{Scalable optimization}
-Complexity of likelihood, gradient, and Hessian
+\begin{equation}
+  \tr(\acm^{-1} \acm_j) \approx \frac{1}{2N_h} \sum_{i=1}^{N_h} \u_i^\top \acm^{-1} \acm_j \u_i
+  \label{eqn:hutch}
+\end{equation}
 
-Complexity of compact RBFs
+\begin{equation}
+  \frac{1}{2N_h} \sum_{i=1}^{N_h} \u_i^\top \W^{-1} \acm_j \W^{-\top} \u_i
+  \label{eqn:symhutch}
+\end{equation}
 
-Cholesky and SDP anisotropy formulations
-\begin{align*}
-  \min_{\Lambda_1, ..., \Lambda_k}  -\ell&(\Lambda_1, ..., \Lambda_k) \\
-  \text{s.t.} \quad \Lambda_i & = \Lambda_i^\top \\
-  \Lambda_i & \succeq 0 \quad \\
-  \forall \ i & = 1,...,k \\
-\end{align*}
+\begin{equation}
+  \big[-\nabla \tilde{\ell}(\bm{\theta}) \big]_j \approx \frac{1}{2N_h} \sum_{i=1}^{N_h} \u_i^\top \W^{-1} \acm_j \W^{-\top} \u_i - \frac{1}{2} \y^\top \acm^{-1} \acm_j \acm^{-1} \y
+  \label{eqn:approxgrad}
+\end{equation}
 
-Off-diagonal decay of Hessian
+\begin{equation}
+  \I_{jk} = \frac{1}{2} \tr(\acm^{-1} \acm_j \acm^{-1} \acm_k)
+  \label{eqn:fish}
+\end{equation}
 
-Unconstrained univariate nonstationary scale
-\begin{itemize}
-  \item COBYLA
-  \item BFGS
-  \item Full Hessian trust region
-  \item Block diagonal Hessian trust region
-  \item Full Fisher trust region
-  \item Block diagonal Fisher trust region
-\end{itemize}
+\begin{equation}
+  \widehat{\I}_{jj} = \frac{1}{2N_h} \sum_{i=1}^{N_h} \u_i^\top \W^{-1} \acm_j \acm^{-1} \acm_j \W^{-\top} \u_i
+  \label{eqn:approxfishdiag}
+\end{equation}
 
-\section{Numerical experiments} \label{experiments}
-Parameter reconstruction with confidence intervals
+\begin{equation}
+  \widehat{\I}_{jk} = \frac{1}{4N_h} \sum_{i=1}^{N_h} \u_i^\top \W^{-1} (\acm_j + \acm_k) \acm^{-1} (\acm_j + \acm_k) \W^{-\top} \u_i - \frac{1}{2} \widehat{\I}_{jj} - \frac{1}{2} \widehat{\I}_{kk}
+  \label{eqn:approxfish}
+\end{equation}
 
-Asymptotic results utilizing the orthogonality of Gaussian measures establish that even in the stationary case in which $\nu$ is fixed, the anisotropy $\Lambda = \alpha I$ is a scaling of the identity matrix, and the scale $\sigma^2 = \beta$ is a constant, the parameters $\alpha$ and $\beta$ cannot be consistently estimated simultaneously using an increasing number of observations in a fixed domain \cite{zhang2004inconsistent}.
+\begin{equation}
+  \big[-\nabla^2 \tilde{\ell}(\bm{\theta})\big]_{jk} = -\I_{jk} + \frac{1}{2} \tr(\acm^{-1} \acm_{jk}) - \frac{1}{2} \y^\top \Big( \frac{\partial}{\partial \theta_k} \acm^{-1} \acm_j \acm^{-1} \Big) \y
+  \label{eqn:approxhess}
+\end{equation}
+
+\begin{equation}
+  \frac{\partial}{\partial \theta_k} \acm^{-1} \acm_j \acm^{-1} = - \acm^{-1} \acm_k \acm^{-1} \acm_j \acm^{-1} + \acm^{-1} \acm_{jk} \acm^{-1} - \acm^{-1} \acm_k \acm^{-1} \acm_j \acm^{-1}
+  \label{eqn:derexp}
+\end{equation}
+
+
+\section{Computational considerations} \label{sec:computation}
+Although the HODLR approximation greatly improves the scalability of the evaluation of the likelihood and its derivatives, the nonlinear programs resulting from the basis function formulation \ref{eqn:var} become high-dimensional and costly when a large number of basis functions are used. The computational expense of these problems stems both from the cost of evaluating the covariance function and from the number of entries in the gradient and hessian. Computing the local parameter as a linear combination of basis function values scales as $O(m)$, dominating the other $O(1)$ arithmetic operations in evaluating the covariance function \ref{eqn:covfunc}. In addition, the nonlinear program has $m$ variables, resulting in $m$ gradient entries and $m^2$ hessian entries. Thus evaluating the likelihood scales as $O(m n\log n)$, the gradient as $O(m^2 n\log n)$, and the hessian as $O(m^3 n\log n)$. In order to capture fine-scale variation in the parameter function, one must often use a relatively large basis set, for which this scaling is not computationally feasible. We now discuss methods which improve the computational complexity of identifying local minima in these nonlinear programs.
+
+\subsection{Scalable quasi-Newton algorithms}
+Full Newton-Raphson and Fisher scoring overview
+
+By using a radial basis set, the effect of the variable $a_i$ on the linear combination is concentrated near the RBF center $c_i$. Combined with the monotonic decay of the Mat\'ern covariance function as $\norm{\x - \xp}$ grows, we expect that $\frac{\partial^2}{\partial a_i \partial a_j}$ will be small when the RBF centers $\c_i$ and $\c_j$ are far apart. Experimentally, we see that for sufficiently localized RBFs, the hessian displays rapid off-diagonal decay, see Figure \ref{fig:hess}. This concentration of second order information on the diagonal of the Hessian indicates that an approximation by a hierarchical or diagonal matrix may facilitate scalable quasi-Newton methods. So-called quasi-Cauchy methods \cite{zhu1999quasi, andrei2019diagonal} have been previously proposed, computing sequential updates to a diagonal Hessian approximation satisfying a weak secant equation \cite{dennis1993sizing}. We propose a simpler approach in which we extract the diagonal elements of the Fisher or Hessian matrix and use this diagonal matrix directly as an approximation to the full matrix.
+
+% \begin{figure}[t!]
+%   \centering
+%   \begin{subfigure}[t]{0.3\textwidth}
+%     \includegraphics[width=\textwidth]{figures/hessians/p1000-a20.pdf}
+%     \caption{Hessian}
+%   \end{subfigure}%
+%   \begin{subfigure}[t]{0.3\textwidth}
+%     \includegraphics[width=\textwidth]{figures/hessians/p1000-a20-log.pdf}
+%     \caption{Log absolute value of Hessian}
+%   \end{subfigure}
+%   \caption{Hessian for the variable scale problem.}
+%   \label{fig:hess}
+% \end{figure}
 
 \begin{figure}[t!]
   \begin{subfigure}[t]{0.5\textwidth}
@@ -176,76 +222,131 @@ Asymptotic results utilizing the orthogonality of Gaussian measures establish th
     \caption{5000 observations with 50 anchors}
   \end{subfigure}
   \caption{Runtime comparison of gradient descent, Newton's method using the full Hessian and its diagonal, as well as Fisher scoring using the full Fisher-information matrix and its diagonal.}
+  \label{fig:timing}
 \end{figure}
 
-\begin{figure}[t!]
+\subsection{Compactly supported radial basis functions}
+
+We can reduce the computational complexity of both the covariance function evaluation and the computation of the gradient and Hessian by using a compactly supported radial basis set in place of the Gaussians. We use the radial functions $\phi_{\ell,k}$ introduced by Wendland \cite{wendland1995piecewise}, defined by
+\begin{equation}
+  \phi_{\ell,k}(t) & = \begin{cases}
+    \displaystyle\frac{1}{\Gamma(k)2^{k-1}} \int_t^1 s(1-s)^\ell(s^2-t^2)^{k-1} ds & \text{for} \ 0 \leq t \leq 1 \\
+    0 & \text{for} \ t > 1
+\end{cases}
+\end{equation}
+By setting $\ell = \floor{d/2}+k+1$ and defining $\psi_i(\x}) = \phi_{\ell,k}(\norm{\x - \c_i}/r)$, we obtain the unique piecewise polynomial radial function $\psi_i \in \mathcal{C}^{2k}(\R^d)$ of minimal degree which is zero outside of the disk of radius $r$ centered at $\c_i$. These functions have convenient recursive definitions which give simple polynomial expressions for a given smoothness $2k$ and spatial dimension $d$ \cite{fasshauer1998smoothing}. For example, $\phi_{3,1}(t) = (1-t)^4_+(4t+1)$ gives radial functions $\psi_i \in \mathcal{C}^2(\R^2)$.
+
+Although Gaussian RBFs truncated at radius $r$ would yield a similar compactly supported basis set, this would introduce a discontinuity in the estimated parameter function on the boundary of their support at $\norm{\x - \c_i} = r$. We choose to employ the Wendland functions because we can enforce an arbitrary level of smoothness at the boundary of their support. A Gaussian process is $k$-times mean square differentiable if and only if its covariance function is $2k$ times differentiable at the origin \cite{stein1999interpolation}. Thus we can maintain the $\floor{\nu}$-times mean-squared differentiability of the Mat\'ern process with smoothness parameter $\nu$ by using the appropriate $2\floor{\nu}$ times differentiable Wendland basis functions.
+% With an appropriate scaling of the radius parameter $r$, the Wendland radial basis functions approach Gaussians as the smoothness level $k \to \infty$ \cite{chernih2014wendland} and can thus be viewed as a smooth compactly supported approximation to the Gaussian basis set as opposed to the discontinuous Gaussian-like set generated by truncation.
+It is also worth emphasizing that the use of a compactly supported basis functions to approximate a nonstationary parameter function does not result in a compactly supported covariance function as described by Gneiting \cite{gneiting2002compactly} or induced by covariance tapering \cite{furrer2006covariance, kaufman2008covariance}. The Mat\'ern covariance function \ref{eqn:covfunc} remains globally supported irrespective of its parameter values and the basis used to construct them.
+
+The first advantage of compactly-supported basis functions is to reduce the cost of kernel evaluation from $O(m)$ to $O(a)$ where $a$ is the maximum number of basis functions which are simultaneously nonzero, as the linear combination contains at most this many terms. Furthermore, sparsity in $\acm_j$ and $\acm_{jk}$ induced by compactly-supported radial basis functions can improve the computational complexity of gradient and Hessian calculations. Let $S_j$ be the compact support of basis function $j$. Then applying the chain rule, writing $\theta = \theta(\bm{x})$ and $\theta' = \theta(\bm{x'})$ for convenience, we have
+\begin{align*}
+  \frac{\partial k(\bm{x}, \bm{x'})}{\partial a_j}
+  % & = \frac{\partial \theta}{\partial a_j} \frac{\partial k(\bm{x}, \bm{x'})}{\partial \theta} + \frac{\partial \theta'}{\partial a_j} \frac{\partial k(\bm{x}, \bm{x'})}{\partial \theta'} \\
+  & = \psi_j(\bm{x}) \frac{\partial k(\bm{x}, \bm{x'})}{\partial \theta} + \psi_j(\bm{x'}) \frac{\partial k(\bm{x}, \bm{x'})}{\partial \theta'},
+\end{align*}
+which is nonzero if and only if $\bm{x} \in S_j$ or $\bm{x'} \in S_j$. Thus the derivative covariance matrix $\acm_j$ has $2ns -s^2 \in O(ns)$ nonzero entries, where $s = |S_j|$ is the number of observations in the support of a given basis function. Applying the chain rule again, we have
+\begin{align*}
+  \frac{\partial^2 k(\bm{x}, \bm{x'})}{\partial a_j \partial a_k}
+  % & = \psi_j(\bm{x}) \frac{\partial}{\partial \theta} \frac{\partial k(\bm{x}, \bm{x'})}{\partial a_k} + \psi_j(\bm{x'}) \frac{\partial}{\partial \theta'} \frac{\partial k(\bm{x}, \bm{x'})}{\partial a_k} \\
+  & = \psi_j(\bm{x}) \psi_k(\bm{x}) \frac{\partial^2 k(\bm{x}, \bm{x'})}{\partial \theta \partial \theta}
+  + \Big[\psi_j(\bm{x'}) \psi_k(\bm{x}) + \psi_j(\bm{x}) \psi_k(\bm{x'})\Big]
+  \frac{\partial^2 k(\bm{x}, \bm{x'})}{\partial \theta \partial \theta'}
+  + \psi_j(\bm{x'}) \psi_k(\bm{x'}) \frac{\partial^2 k(\bm{x}, \bm{x'})}{\partial \theta' \partial \theta'}
+\end{align*}
+which is nonzero if and only if there is at least one of $\bm{x}$ or $\bm{x'}$ in each of the support sets $S_j$ and $S_k$. Let $b = |S_j \cap S_k|$ be the number of observations in the support of both basis functions $j$ and $k$. Then the derivative covariance matrix $\acm_{jk}$ has $2nb + 2s^2 + b^2 - 4sb \in O(nb + s^2)$ nonzero entries.
+
+\begin{table}
   \centering
-  \begin{tabular}{cc}
-    \begin{subfigure}[t]{0.3\textwidth}
-      \includegraphics[width=\textwidth]{figures/scale/dat-nss-p1000.pdf}
-      \caption{Simulated random field}
-    \end{subfigure} &
-    \begin{subfigure}[t]{0.3\textwidth}
-      \includegraphics[width=\textwidth]{figures/scale/est-p1000-a5-se1.pdf}
-      \caption{True and estimated scale function using 5 NRBFs}
-    \end{subfigure}
-    \\[4ex]
-    &
-    \begin{subfigure}[t]{0.3\textwidth}
-      \includegraphics[width=\textwidth]{figures/scale/est-p1000-a10-se1.pdf}
-      \caption{True and estimated scale function using 10 NRBFs}
-    \end{subfigure}
-    \\[4ex]
-    &
-    \begin{subfigure}[t]{0.3\textwidth}
-      \includegraphics[width=\textwidth]{figures/scale/est-p1000-a20-se1.pdf}
-      \caption{True and estimated scale function using 20 NRBFs}
-    \end{subfigure}
+  \begin{tabular}{p{0.2\textwidth}p{0.15\textwidth}p{0.28\textwidth}p{0.17\textwidth}}
+    \hline
+    Operation & Global & Compact & Disjoint \\
+    \hline \hline
+    Covariance function & $O(m)$ & $O(a)$ & $O(1)$ \\
+    Factorization & $O(m n\log^2 n)$ & $O(a n\log^2 n)$ & $O(n\log^2 n)$ \\
+    Likelihood & $O(n\log n)$ & $O(n\log n)$ & $O(n\log n)$ \\
+    Gradient & $O(m^2 n\log n)$ & $O(n\log n + mans)$ & $O(n^2)$ \\
+    Hessian & $O(m^3 n\log n)$ & $O\big(m n \log n + m^2a(n\bar{b} + s^2)\big)$ & $O(mn^2)$ \\
+    \hline
   \end{tabular}
-  \caption{Nonstationary scale parameter estimation for a 1D simulated random field. The isotropic Mat\'ern covariance with fixed $\ell=1$ and $\nu=1/2$ was used to generate 1,000 observations on a regular grid in $[0,1]$ with NRBF centers also on a regular grid. MLE computed using BFGS.}
-  \label{}
-\end{figure}
+  \caption{Likelihood computation complexities with globally, compactly, and disjointly supported basis functions.}
+  \label{tab:complexity}
+\end{table}
 
-\begin{figure}[t!]
+Using the Hutchinson trace estimator \ref{eqn:hutch}, each gradient entry $[-\nabla \tilde{\ell}(\bm{\theta})]_j$ is computed as a sum of terms of the form $\bm{v}^\top \acm_j \bm{v}$ for $\bm{v} \in \bm{V} := \{\acm^{-1} \bm{y}, \bm{W}^{-\top} \bm{u}_1, ..., \bm{W}^{-\top} \bm{u}_{N_h}\}$.
+Each vector $\bm{v} \in \bm{V}$ can be computed in $O(n \log n)$ complexity using the HODLR symmetric factor, and the cost of computing each inner product is $O(n\log n)$ using the HODLR matvec. Alternatively, using the $O(ns)$ sparsity just discussed with an $O(a)$ covariance function evaluation, we obtain the full sparse matrix $\acm_j$ in $O(ans)$ complexity. By precomputing the vectors $v$ then forming each sparse derivative matrix $\acm_j$ and evaluating the inner products $\bm{v}^\top \acm_j \bm{v}$ using the $O(ns)$ sparse matvec for $j=1,...,m$, we obtain the gradient in $O(n \log n + mans)$ complexity.
+
+Similarly, each Hessian entry $[-\nabla^2 \tilde{\ell}(\bm{\theta})]_{jk}$ is computed as a sum of terms of the form $\bm{v}^\top \acm_{jk} \bm{v}$ and $\bm{v}^\top \acm_j \acm^{-1} \acm_k \bm{v}$ for $\bm{v} \in \bm{V}$.
+Noting that this second inner product can also be written as $(\bm{W}^{-1} \acm_j \bm{v})^\top (\bm{W}^{-1} \acm_k \bm{v})$, we precompute $\bm{W}^{-1} \acm_j \bm{v}$ for each $\bm{v} \in \bm{V}$ and each $j=1,...,m$ for a total computational cost of $O(m n \log n)$.
+In order to compute the full Hessian, we form the full sparse matrices $\acm_j$ and $\acm_k$ in $O(ans)$ complexity and $\acm_{jk}$ in $O\big(a(nb + s^2)\big)$ complexity, then compute the necessary inner products. This leads to a worst case complexity of $O\big(m n \log n + m^2a(n\bar{b} + s^2)\big)$, where
+$$\bar{b} = \max_{j,k \in [m]} |S_j \cap S_k|$$
+is the maximum cardinality of the intersection between basis functions.
+
+Psuedocode to clarify / replace some of these statements
+
+To determine the effectiveness of this induced sparsity, consider the limiting case in which the basis functions have pairwise disjoint supports. In this case there is exactly one nonzero basis function at every point in the domain, thus $a=1$. The basis function support sets partition the set of observations, thus $s = n/m$. There is no overlap between supports, thus $\bar{b}=0$. Notably, this results in an $O(n^2)$ gradient cost which is independent of the number of basis functions $m$. See Table \ref{tab:complexity} for a comparison of computational costs for globally, compactly, and disjointly supported basis functions.
+
+\section{Numerical experiments} \label{sec:experiments}
+
+Something here comparing RBFs with polynomials in log space to make the generic basis function framework worthwhile.
+
+\begin{figure}[H]
   \centering
   \begin{tabular}{ccc}
     \begin{subfigure}[t]{0.3\textwidth}
-      \includegraphics[width=\textwidth]{figures/isotropic/dat-nsr-p10000.pdf}
+      \includegraphics[width=\textwidth]{figures/scale2/dat-nss-p1000.pdf}
       \caption{Simulated random field}
-    \end{subfigure} &
+    \end{subfigure}
+    &
+    \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/scale2/est-p1000-a5-se1.pdf}
+      \caption{Scale function \\ 5 basis functions}
+    \end{subfigure}
+    &
+    \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/scale2/est-p1000-a20-se1.pdf}
+      \caption{Scale function \\ 20 basis functions}
+    \end{subfigure}
+  \end{tabular}
+  \caption{Nonstationary scale parameter estimation for a 1D simulated random field. The isotropic Mat\'ern covariance with fixed $\Lambda=I$ and $\nu=1/2$ was used to generate 1,000 observations on a regular grid in $[0,1]$ with NRBF centers also on a regular grid. MLE computed using BFGS.}
+  \label{fig:1d}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tabular}{cc}
     \begin{subfigure}[t]{0.3\textwidth}
       \includegraphics[width=\textwidth]{figures/isotropic/tru-nsr-p10000.pdf}
       \caption{True range function}
     \end{subfigure}
-    & \\[4ex]
-    &
-    \multicolumn{2}{l}{
-      \begin{subfigure}[t]{0.6\textwidth}
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/est-nsr-p10000-a4.pdf}%
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/err-nsr-p10000-a4.pdf}
-        \caption{Estimated range function (left) and error (right) using 4 NRBFs}
-      \end{subfigure}
-    } \\[4ex]
-    &
-    \multicolumn{2}{l}{
-      \begin{subfigure}[t]{0.6\textwidth}
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/est-nsr-p10000-a16.pdf}%
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/err-nsr-p10000-a16.pdf}
-        \caption{Estimated range function and error using 16 NRBFs}
-      \end{subfigure}
-    } \\[4ex]
-    &
-    \multicolumn{2}{l}{
-      \begin{subfigure}[t]{0.6\textwidth}
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/est-nsr-p10000-a64.pdf}%
-        \includegraphics[width=0.5\textwidth]{figures/isotropic/err-nsr-p10000-a64.pdf}
-        \caption{Estimated range function and error using 64 NRBFs}
-      \end{subfigure}
+    & \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/isotropic/dat-nsr-p10000.pdf}
+      \caption{Simulated random field}
+    \end{subfigure} \\[6ex]
+    \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/isotropic/est-nsr-p10000-a4.pdf}
+      \caption{Estimated range function \\ 4 basis functions}
+    \end{subfigure}
+    & \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/isotropic/err-nsr-p10000-a4.pdf}
+      \caption{Error \\ 4 basis functions}
+    \end{subfigure} \\[6ex]
+    \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/isotropic/est-nsr-p10000-a16.pdf}
+      \caption{Estimated range function \\ 16 basis functions}
+    \end{subfigure}
+    & \begin{subfigure}[t]{0.3\textwidth}
+      \includegraphics[width=\textwidth]{figures/isotropic/err-nsr-p10000-a16.pdf}
+      \caption{Error \\ 16 basis functions}
+    \end{subfigure}
     }
   \end{tabular}
   \caption{Nonstationary range parameter estimation for a 2D simulated random field. The isotropic Mat\'ern covariance with fixed $\sigma^2=1$ and $\nu=1/2$ was used to generate 10,000 observations on a regular grid in $[-1,1]^2$ with NRBF centers also on a regular grid. MLE computed using BFGS.}
-  \label{}
+  \label{fig:2d}
 \end{figure}
+
+\section{Conclusions and future directions} \label{sec:conclusions}
 
 \bibliography{refs}{}
 \bibliographystyle{plain}
